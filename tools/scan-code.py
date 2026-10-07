@@ -74,8 +74,11 @@ RULES = [
 ALL_IDS = [r[0] for r in RULES] + ['DC013']
 
 
+GIT_TIMEOUT_S = 120
+
+
 def git(root, *args):
-    return subprocess.run(['git', '-C', root, *args], capture_output=True, text=True, check=True).stdout
+    return subprocess.run(['git', '-C', root, *args], capture_output=True, text=True, check=True, timeout=GIT_TIMEOUT_S).stdout
 
 
 def load_config(path):
@@ -183,7 +186,7 @@ def main(argv):
     try:
         root = args.get('root') or git(os.getcwd(), 'rev-parse', '--show-toplevel').strip()
         cfg = load_config(args.get('config'))
-    except (ValueError, OSError, json.JSONDecodeError, subprocess.CalledProcessError) as e:
+    except (ValueError, OSError, json.JSONDecodeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         print(f'scan-code: configuration error: {e}', file=sys.stderr)
         return 2
     excl = [re.compile(x) for x in DEFAULT_EXCLUDE + cfg.get('exclude_paths', [])]

@@ -23,19 +23,36 @@ const path = require('path');
 
 const SEVERITIES = ['blocking', 'major', 'minor'];
 
-/** Normalize a raw reviewer response to { verdict, reviewer_verdict, findings }. Throws if it cannot. */
-function normalize(text) {
-  const fenced = [...String(text).matchAll(/```json\s*([\s\S]*?)```/g)].map((m) => m[1]);
-  const candidates = fenced.length ? fenced : [String(text).slice(String(text).indexOf('{'), String(text).lastIndexOf('}') + 1)];
-  let obj = null;
-  for (const c of candidates) { try { obj = JSON.parse(c); break; } catch { /* next */ } }
+/** Validate one parsed object against the result schema; throws on the first problem. */
+function validate(obj) {
   if (!obj || typeof obj !== 'object' || !Array.isArray(obj.findings)) throw new Error('response is not the required JSON object with a findings array');
-  const findings = obj.findings.map((f, i) => {
+  return obj.findings.map((f, i) => {
     const sev = String(f.severity || '').toLowerCase();
     if (!SEVERITIES.includes(sev)) throw new Error(`finding ${i + 1} has severity "${f.severity}", not one of ${SEVERITIES.join(', ')}`);
     if (!f.issue) throw new Error(`finding ${i + 1} has no issue text`);
     return { id: `F${i + 1}`, severity: sev, rule: f.rule || null, file: f.file || null, line: Number.isFinite(Number(f.line)) ? Number(f.line) : null, issue: String(f.issue), evidence: f.evidence ? String(f.evidence) : null, action: f.action ? String(f.action) : null };
   });
+}
+
+/**
+ * Normalize a raw reviewer response to { verdict, reviewer_verdict, findings }. Throws if it cannot.
+ * The response must hold exactly one valid result object. Candidates are each fenced json block and the
+ * outermost braces of the whole text (a fence can be cut short by backticks quoted inside a string). Two
+ * different valid objects are ambiguous and rejected; a candidate that parses but fails the schema is skipped.
+ */
+function normalize(text) {
+  const raw = String(text);
+  const candidates = [...raw.matchAll(/```json\s*([\s\S]*?)```/g)].map((m) => m[1]);
+  if (raw.includes('{')) candidates.push(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+  const valid = new Map(); let lastError = 'no JSON object found';
+  for (const c of candidates) {
+    let obj;
+    try { obj = JSON.parse(c); } catch (e) { lastError = `not JSON: ${e.message}`; continue; }
+    try { const findings = validate(obj); valid.set(JSON.stringify(obj), { obj, findings }); } catch (e) { lastError = e.message; }
+  }
+  if (valid.size > 1) throw new Error(`response holds ${valid.size} different result objects; exactly one is required`);
+  if (!valid.size) throw new Error(lastError);
+  const [{ obj, findings }] = valid.values();
   // The verdict follows the findings, whatever the reviewer called it: a blocking finding is a FAIL.
   const verdict = findings.some((f) => f.severity === 'blocking') ? 'FAIL' : findings.length ? 'PASS_WITH_FINDINGS' : 'PASS';
   return { verdict, reviewer_verdict: obj.verdict || null, findings };
@@ -46,8 +63,8 @@ function order(reviewers, selection) {
   if (!names.length) throw new Error('no approved reviewers configured');
   let first = selection.default && names.includes(selection.default) ? selection.default : names[0];
   if (selection.mode === 'rotate' && selection.stateFile) {
-    let last = null;
-    try { last = JSON.parse(fs.readFileSync(selection.stateFile, 'utf8')).last; } catch { /* first run */ }
+    let last;
+    try { last = JSON.parse(fs.readFileSync(selection.stateFile, 'utf8')).last; } catch { last = null; /* first run: no state file yet */ }
     if (names.includes(last)) first = names[(names.indexOf(last) + 1) % names.length];
   }
   return [first, ...names.filter((n) => n !== first)].map((n) => reviewers.find((r) => r.name === n));

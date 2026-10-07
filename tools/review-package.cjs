@@ -24,6 +24,7 @@ const { spawnSync } = require('child_process');
 
 const DEV_DIR = path.resolve(__dirname, '..');
 const DEPTHS = ['low', 'normal', 'high'];
+const SCAN_TIMEOUT_MS = 120000;   // a scanner that hangs is a failed scan: the spawn error blocks the package
 const ROUND2_REASONS = ['material_issue', 'material_fix', 'unresolved_material', 'gate_required', 'owner_requested'];
 
 class PackageError extends Error { constructor(code, msg) { super(msg); this.code = code; } }
@@ -93,6 +94,8 @@ function detectSurfaces(blocks, cfg) {
 function build(o) {
   for (const k of ['repo', 'base', 'depth', 'record', 'scanner', 'out']) if (!o[k]) throw new PackageError(2, `--${k} is required`);
   if (!DEPTHS.includes(o.depth)) throw new PackageError(2, `--depth must be one of ${DEPTHS.join(', ')}`);
+  // The scanner must be handed the exact package file, or it would pass without reading what is sent.
+  if (!/\{file\}/.test(o.scanner)) throw new PackageError(2, '--scanner must contain {file}: the scan has to read the exact package that would be transmitted');
   const round = Number(o.round || 1);
   if (round === 2 && (!o.prior || !ROUND2_REASONS.includes(o.reason)))
     throw new PackageError(6, `a second round needs --prior <result.json> and --reason one of ${ROUND2_REASONS.join(', ')} (REVIEW_METHOD 4.6)`);
@@ -105,6 +108,7 @@ function build(o) {
   if (!all.length) throw new PackageError(2, 'the diff is empty: nothing to review');
   const blocks = all.filter((b) => !isExcluded(b.file));
   const excluded = all.filter((b) => isExcluded(b.file)).map((b) => ({ path: b.file, reason: 'excluded by pattern (secrets, keys, environment or data files)' }));
+  if (!blocks.length) throw new PackageError(2, `every changed file is excluded (${all.map((b) => b.file).join(', ')}): there is nothing reviewable to send. Review the change another way or narrow the exclusions in the organization's surfaces file`);
   const changed = blocks.reduce((n, b) => n + b.added + b.removed, 0);
   const det = detectSurfaces(blocks, cfg);
   if (det.minDepth && DEPTHS.indexOf(o.depth) < DEPTHS.indexOf(det.minDepth))
@@ -135,8 +139,8 @@ function build(o) {
     return heading ? needSection(file, txt, (h) => h.toLowerCase().includes(heading.toLowerCase()), ref) : txt.trim();
   });
   const govText = [...gov, task, resultSpec, ...crSections, ...orgRules].join('\n\n');
-  let devCommit = null;
-  try { devCommit = git(DEV_DIR, ['rev-parse', 'HEAD']).trim(); } catch { /* not a git checkout */ }
+  let devCommit;
+  try { devCommit = git(DEV_DIR, ['rev-parse', 'HEAD']).trim(); } catch { devCommit = null; /* not a git checkout: the sha256 below still pins the text */ }
 
   const readCapped = (f, cap) => { const t = fs.readFileSync(f, 'utf8'); return t.length > cap ? `${t.slice(0, cap)}\n[truncated at ${cap} characters]` : t; };
   const evidence = (o.evidence || []).map((f) => `### ${path.basename(f)}\n\n\`\`\`\n${readCapped(f, 20000)}\n\`\`\``);
@@ -181,7 +185,7 @@ function build(o) {
   fs.writeFileSync(pkgFile, parts);
   // Secret-scan the exact bytes that would be transmitted. Any finding or scanner error blocks (fail closed).
   const argv = o.scanner.split(/\s+/).filter(Boolean).map((a) => a.replace('{file}', pkgFile));
-  const scan = spawnSync(argv[0], argv.slice(1), { encoding: 'utf8' });
+  const scan = spawnSync(argv[0], argv.slice(1), { encoding: 'utf8', timeout: SCAN_TIMEOUT_MS });
   manifest.scan = { command: argv.map((a) => (a === pkgFile ? '<package>' : a)).join(' '), exit: scan.status, output: `${scan.stdout || ''}${scan.stderr || ''}${scan.error ? `scanner did not run: ${scan.error.message}` : ''}`.trim().slice(0, 4000) };
   if (scan.error || scan.status !== 0) {
     fs.unlinkSync(pkgFile);

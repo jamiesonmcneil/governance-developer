@@ -81,6 +81,17 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
     assert(manifest.files.map((f) => f.path).join() === 'src/label.ts', JSON.stringify(manifest.files));
     fs.unlinkSync(path.join(repo, 'src/other.ts'));
   });
+  await t('a scanner command without {file} is refused', () => {
+    let code = 0; try { build(opts({ scanner: clean })); } catch (e) { code = e.code; }
+    assert(code === 2, `expected 2, got ${code}`);
+  });
+  await t('a change whose every file is excluded is not a reviewable package', () => {
+    const r2 = path.join(tmp, 'r2'); fs.mkdirSync(r2); sh(r2, 'init', '-q', '-b', 'main'); sh(r2, 'config', 'user.email', 't@example.com'); sh(r2, 'config', 'user.name', 't');
+    fs.writeFileSync(path.join(r2, 'x.md'), 'x\n'); sh(r2, 'add', '.'); sh(r2, 'commit', '-qm', 'b');
+    fs.writeFileSync(path.join(r2, '.env'), 'A=1\n');
+    let code = 0; let msg = ''; try { build(opts({ repo: r2 })); } catch (e) { code = e.code; msg = e.message; }
+    assert(code === 2 && /every changed file is excluded/.test(msg), `${code} ${msg}`);
+  });
   await t('round 2 needs a listed reason; round 3 needs owner approval', () => {
     const prior = path.join(tmp, 'prior.json'); fs.writeFileSync(prior, JSON.stringify({ findings: [{ id: 'F1', issue: 'x' }] }));
     let c1 = 0; try { build(opts({ round: '2', prior })); } catch (e) { c1 = e.code; }
@@ -113,6 +124,18 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
   await t('all reviewers failing is "failed", never PASS', async () => {
     const r = await runReview({ packageDir: pkgDir, reviewers, retries: { max: 0 }, call: async () => { throw new Error('down'); } });
     assert(r.status === 'failed' && r.verdict === null, JSON.stringify(r));
+  });
+  await t('backticks quoted inside the JSON do not break parsing', () => {
+    const r = normalize('```json\n{"verdict":"FAIL","findings":[{"severity":"major","rule":"D5","issue":"see ```bash\\nrm -rf``` here"}]}\n```');
+    assert(r.findings.length === 1 && r.verdict === 'PASS_WITH_FINDINGS', JSON.stringify(r));
+  });
+  await t('two different result objects are ambiguous and rejected', () => {
+    let msg = ''; try { normalize('```json\n{"verdict":"PASS","findings":[]}\n```\n```json\n{"verdict":"FAIL","findings":[{"severity":"blocking","issue":"x"}]}\n```'); } catch (e) { msg = e.message; }
+    assert(/exactly one is required/.test(msg), msg);
+  });
+  await t('a JSON block that fails the schema is skipped for the valid one', () => {
+    const r = normalize('```json\n{"thinking":"..."}\n```\n```json\n{"verdict":"PASS","findings":[]}\n```');
+    assert(r.verdict === 'PASS', JSON.stringify(r));
   });
   await t('a blocking finding makes FAIL whatever the reviewer said', () => {
     const r = normalize('```json\n{"verdict":"PASS","findings":[{"severity":"blocking","rule":"D3","issue":"default repeated"}]}\n```');
