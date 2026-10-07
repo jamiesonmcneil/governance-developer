@@ -155,8 +155,8 @@ A change that skips this checklist is a change that will need rework.
 |---|---|
 | Parameterized queries always; string concatenation never | SQL injection is a one-mistake breach |
 | Indexes for FK columns and frequent query shapes | Without indexes, queries scale O(n); with, O(log n) |
-| Soft delete pattern (`is_deleted = true`) | Audit trail; reversible; matches most regulatory requirements |
-| Standard columns on every table, per the project convention (for example `id`, `uuid`, `is_active`, `is_deleted`, `created_date`, `updated_date`) | Consistency wins |
+| Soft delete where the project convention uses it (`is_deleted = true`), with a real deletion path where law requires erasure | Audit trail and reversibility, without blocking erasure obligations |
+| Standard columns on every table, as the project convention defines them | Consistency wins |
 | UUIDs in public-facing IDs; never numeric primary keys | Prevents IDOR enumeration |
 | Migrations idempotent and reversible | Production deploys need an out |
 | `SELECT *` never in app code; always list columns | Future schema additions don't surprise the app |

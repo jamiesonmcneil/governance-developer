@@ -1,34 +1,150 @@
 {
-  "//": "Default surface detection for review-package.cjs. Path patterns are reliable and can force a minimum depth; content patterns only signal a possible surface for the author and the reviewer to confirm. A consuming organization may pass its own file with --surfaces.",
+  "//": "Default surface detection for review-package.cjs. Path patterns are reliable and can force a minimum depth; content patterns only signal a possible surface for the author and the reviewer to confirm. A consuming organization may pass its own file with --surfaces. Exclusions match case-insensitively; an organization adds its own with --exclude.",
   "surfaces": {
-    "typescript": { "paths": ["\\.(ts|tsx|js|jsx|mjs|cjs)$"], "sections": ["§T"] },
-    "php": { "paths": ["\\.php$"], "sections": ["§P"] },
-    "sql_schema": { "paths": ["\\.sql$", "(^|/)migrations?/"], "sections": ["§11", "§S"], "forces": "high" },
+    "typescript": {
+      "paths": [
+        "\\.(ts|tsx|js|jsx|mjs|cjs)$"
+      ],
+      "sections": [
+        "§T"
+      ]
+    },
+    "php": {
+      "paths": [
+        "\\.php$"
+      ],
+      "sections": [
+        "§P"
+      ]
+    },
+    "sql_schema": {
+      "paths": [
+        "\\.sql$",
+        "(^|/)migrations?/"
+      ],
+      "sections": [
+        "§11",
+        "§S"
+      ],
+      "forces": "high"
+    },
     "auth": {
-      "paths": ["(^|/)(auth|authz|authn|sessions?|permissions?|guards?|rbac|acl)(/|[.-])", "(^|/)middleware\\.(ts|js)$"],
-      "content": ["\\b(jwt|bearer|oauth|password|authori[sz]|authenticat|permission|tenant)\\w*"],
-      "sections": ["§A", "§3"], "forces": "high"
+      "paths": [
+        "(^|/)(auth|authz|authn|sessions?|permissions?|guards?|rbac|acl)(/|[.-])",
+        "(^|/)middleware\\.(ts|js)$"
+      ],
+      "content": [
+        "\\b(jwt|bearer|oauth|password|authori[sz]|authenticat|permission|tenant)\\w*"
+      ],
+      "sections": [
+        "§A",
+        "§3"
+      ],
+      "forces": "high"
     },
     "financial": {
-      "paths": ["(^|/)(billing|payments?|invoic\\w*|pricing|checkout|ledger)(/|[.-])"],
-      "content": ["\\b(price|amount|invoice|billing|payment|currency|refund|subtotal)\\w*"],
-      "sections": ["§F"], "forces": "high"
+      "paths": [
+        "(^|/)(billing|payments?|invoic\\w*|pricing|checkout|ledger)(/|[.-])"
+      ],
+      "content": [
+        "\\b(price|amount|invoice|billing|payment|currency|refund|subtotal)\\w*"
+      ],
+      "sections": [
+        "§F"
+      ],
+      "forces": "high"
     },
-    "integration": { "paths": ["(^|/)(integrations?|webhooks?|clients?|connectors?)(/|[.-])"], "content": ["\\bfetch\\(|\\baxios\\b|webhook"], "sections": ["§I", "§5"] },
-    "batch": { "paths": ["(^|/)(jobs?|cron|workers?|queues?|schedulers?)(/|[.-])"], "sections": ["§B", "§5", "§8"] },
-    "tests": { "paths": ["\\.(test|spec)\\.[a-z]+$", "(^|/)(tests?|__tests__|e2e)/"], "sections": ["§7"] },
-    "ui": { "paths": ["\\.(tsx|jsx|vue|svelte|css|scss)$"], "sections": ["§X"] },
+    "integration": {
+      "paths": [
+        "(^|/)(integrations?|webhooks?|clients?|connectors?)(/|[.-])"
+      ],
+      "content": [
+        "\\bfetch\\(|\\baxios\\b|webhook"
+      ],
+      "sections": [
+        "§I",
+        "§5"
+      ]
+    },
+    "batch": {
+      "paths": [
+        "(^|/)(jobs?|cron|workers?|queues?|schedulers?)(/|[.-])"
+      ],
+      "sections": [
+        "§B",
+        "§5",
+        "§8"
+      ]
+    },
+    "tests": {
+      "paths": [
+        "\\.(test|spec)\\.[a-z]+$",
+        "(^|/)(tests?|__tests__|e2e)/"
+      ],
+      "sections": [
+        "§7"
+      ]
+    },
+    "ui": {
+      "paths": [
+        "\\.(tsx|jsx|vue|svelte|css|scss)$"
+      ],
+      "sections": [
+        "§X"
+      ]
+    },
     "config_deploy": {
-      "paths": ["(^|/)(Dockerfile|docker-compose[^/]*|[^/]*\\.ya?ml|package\\.json|tsconfig[^/]*\\.json|next\\.config\\.[a-z]+|webpack[^/]*\\.js|ecosystem\\.config\\.[a-z]+)$", "(^|/)\\.github/"],
-      "sections": ["§10", "§12"]
+      "paths": [
+        "(^|/)(Dockerfile|docker-compose[^/]*|[^/]*\\.ya?ml|package\\.json|tsconfig[^/]*\\.json|next\\.config\\.[a-z]+|webpack[^/]*\\.js|ecosystem\\.config\\.[a-z]+)$",
+        "(^|/)\\.github/"
+      ],
+      "sections": [
+        "§10",
+        "§12"
+      ]
     },
-    "observability": { "content": ["\\b(logger|metrics?|alerts?)\\b"], "sections": ["§9"] }
+    "observability": {
+      "content": [
+        "\\b(logger|metrics?|alerts?)\\b"
+      ],
+      "sections": [
+        "§9"
+      ]
+    }
   },
-  "base_sections": { "low": [], "normal": ["§1", "§2", "§3", "§4", "§5"], "high": ["§1", "§2", "§3", "§4", "§5", "§13"] },
+  "base_sections": {
+    "low": [],
+    "normal": [
+      "§1",
+      "§2",
+      "§3",
+      "§4",
+      "§5"
+    ],
+    "high": [
+      "§1",
+      "§2",
+      "§3",
+      "§4",
+      "§5",
+      "§13"
+    ]
+  },
   "low_max_changed_lines": 40,
-  "max_package_bytes": { "low": 30000, "normal": 150000, "high": 300000 },
+  "max_package_bytes": {
+    "low": 30000,
+    "normal": 150000,
+    "high": 300000
+  },
   "exclude": [
-    "(^|/)\\.env($|\\.)", "\\.(pem|key|p12|pfx|jks|keystore|crt)$", "(^|/)id_(rsa|ed25519|ecdsa)", "(^|/)\\.(npmrc|pgpass|netrc)$",
-    "(^|/)(secrets?|credentials?)(/|\\.(json|ya?ml|txt|env|ini)$)", "\\.(sqlite3?|db|dump|bak|backup)$", "\\.(sql|csv)\\.gz$"
+    "(^|/)\\.env($|\\.)",
+    "\\.(pem|key|p12|pfx|jks|keystore|crt)$",
+    "(^|/)id_(rsa|ed25519|ecdsa)",
+    "(^|/)\\.(npmrc|pgpass|netrc)$",
+    "(^|/)(secrets?|credentials?)(/|\\.(json|ya?ml|txt|env|ini)$)",
+    "\\.(sqlite3?|db|dump|bak|backup)$",
+    "\\.(sql|csv)\\.gz$",
+    "\\.(csv|tsv|xlsx?|ods|parquet|ndjson|jsonl)$",
+    "(^|/)(seeds?|dumps?|exports?|backups?|fixtures?/data)/"
   ]
 }

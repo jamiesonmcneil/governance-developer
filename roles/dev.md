@@ -17,6 +17,7 @@ narrows this role, never weakens it.
 - Review its own completed logical change before any independent review (`REVIEW_METHOD.md`).
 - Verify the affected workflow and report exactly what was and was not proven (`VERIFICATION.md`).
 - Keep one completion record per logical change (`COMPLETION_RECORD.md`).
+- Document the work as it goes, in the organization's tracker, not at the end.
 - Ask when uncertain; never guess requirements.
 
 ## A developer MUST NOT, without explicit human approval through the organization's process

@@ -100,6 +100,8 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
     assert(/Prior round findings/.test(fs.readFileSync(packageFile, 'utf8')), 'prior findings missing');
     let c3 = 0; try { build(opts({ round: '3', prior, reason: 'material_fix' })); } catch (e) { c3 = e.code; }
     assert(c3 === 6, `round 3 without approval: ${c3}`);
+    const { manifest } = build(opts({ round: '3', prior, reason: 'material_fix', ownerApproval: 'owner in chat, 2026-10-07 20:15' }));
+    assert(manifest.owner_approval === 'owner in chat, 2026-10-07 20:15', 'third-round approval not recorded');
   });
 
   const ready = build(opts({ out: path.join(tmp, 'ready') }));
@@ -127,7 +129,7 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
   });
   await t('backticks quoted inside the JSON do not break parsing', () => {
     const r = normalize('```json\n{"verdict":"FAIL","findings":[{"severity":"major","rule":"D5","issue":"see ```bash\\nrm -rf``` here"}]}\n```');
-    assert(r.findings.length === 1 && r.verdict === 'PASS_WITH_FINDINGS', JSON.stringify(r));
+    assert(r.findings.length === 1 && r.verdict === 'FAIL', JSON.stringify(r));
   });
   await t('two different result objects are ambiguous and rejected', () => {
     let msg = ''; try { normalize('```json\n{"verdict":"PASS","findings":[]}\n```\n```json\n{"verdict":"FAIL","findings":[{"severity":"blocking","issue":"x"}]}\n```'); } catch (e) { msg = e.message; }
@@ -136,6 +138,28 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
   await t('a JSON block that fails the schema is skipped for the valid one', () => {
     const r = normalize('```json\n{"thinking":"..."}\n```\n```json\n{"verdict":"PASS","findings":[]}\n```');
     assert(r.verdict === 'PASS', JSON.stringify(r));
+  });
+  await t('a reviewer FAIL is never turned into a pass, and an unknown verdict is invalid', () => {
+    assert(normalize('```json\n{"verdict":"FAIL","findings":[]}\n```').verdict === 'FAIL', 'FAIL with no findings became a pass');
+    assert(normalize('```json\n{"verdict":"FAIL","findings":[{"severity":"major","issue":"x"}]}\n```').verdict === 'FAIL', 'FAIL with a major finding became a pass');
+    let msg = ''; try { normalize('```json\n{"verdict":"LGTM","findings":[]}\n```'); } catch (e) { msg = e.message; } assert(/not one of/.test(msg), msg);
+  });
+  await t('a logging failure never changes or discards the review', async () => {
+    const r = await runReview({ packageDir: pkgDir, reviewers, call: async () => ({ text: okJson }), onAttempt: async () => { throw new Error('db down'); } });
+    assert(r.status === 'reviewed' && r.verdict === 'PASS' && r.log_errors.length === 1, JSON.stringify(r));
+  });
+  await t('a package edited after its scan is refused', async () => {
+    const d = path.join(tmp, 'tampered'); fs.cpSync(pkgDir, d, { recursive: true }); fs.appendFileSync(path.join(d, 'package.md'), '\nextra');
+    let msg = ''; try { await runReview({ packageDir: d, reviewers, call: async () => ({ text: okJson }) }); } catch (e) { msg = e.message; }
+    assert(/does not match the sha256/.test(msg), msg);
+  });
+  await t('data files and context outside the repository are excluded or refused', () => {
+    fs.mkdirSync(path.join(repo, 'database/seed'), { recursive: true }); fs.writeFileSync(path.join(repo, 'database/seed/people.sql'), 'insert into x values (1);\n'); fs.writeFileSync(path.join(repo, 'export.CSV'), 'a,b\n');
+    const { manifest } = build(opts({ depth: 'high' }));
+    assert(manifest.excluded.map((e) => e.path).sort().join() === 'database/seed/people.sql,export.CSV', JSON.stringify(manifest.excluded));
+    let code = 0; try { build(opts({ depth: 'high', context: ['../outside.txt'] })); } catch (e) { code = e.code; }
+    assert(code === 2, `outside context accepted: ${code}`);
+    fs.rmSync(path.join(repo, 'database'), { recursive: true }); fs.unlinkSync(path.join(repo, 'export.CSV'));
   });
   await t('a blocking finding makes FAIL whatever the reviewer said', () => {
     const r = normalize('```json\n{"verdict":"PASS","findings":[{"severity":"blocking","rule":"D3","issue":"default repeated"}]}\n```');

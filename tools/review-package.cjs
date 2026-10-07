@@ -10,7 +10,7 @@
  *   [--rules "path/RULES.md#Heading,..."] [--governance-hash <org effective hash>] [--paths dir/,file,...]
  *   --scanner "<command with {file}>" --out <dir>
  *   [--round 2 --prior <result.json> --reason material_issue|material_fix|unresolved_material|gate_required|owner_requested]
- *   [--round 3 --owner-approved]
+ *   [--round 3 --owner-approval "<who, when, where it was given>"] [--exclude <regex,...>]
  *
  * Exit: 0 package ready; 2 usage; 3 blocked by the secret scan (nothing is left to send); 4 over the size
  * budget for the depth; 5 depth below the minimum the surfaces force; 6 a round not allowed.
@@ -99,9 +99,9 @@ function build(o) {
   const round = Number(o.round || 1);
   if (round === 2 && (!o.prior || !ROUND2_REASONS.includes(o.reason)))
     throw new PackageError(6, `a second round needs --prior <result.json> and --reason one of ${ROUND2_REASONS.join(', ')} (REVIEW_METHOD 4.6)`);
-  if (round >= 3 && !o.ownerApproved) throw new PackageError(6, 'a third review round requires the owner\'s explicit approval (--owner-approved)');
+  if (round >= 3 && (typeof o.ownerApproval !== 'string' || o.ownerApproval.trim().length < 10)) throw new PackageError(6, 'a third review round requires the owner\'s explicit approval, recorded as --owner-approval "<who, when, where it was given>"');
   const cfg = JSON.parse(fs.readFileSync(o.surfaces || path.join(__dirname, 'surfaces.json'), 'utf8'));
-  const excl = cfg.exclude.map((x) => new RegExp(x));
+  const excl = [...cfg.exclude, ...(o.exclude || [])].map((x) => new RegExp(x, 'i'));
   const isExcluded = (f) => excl.some((x) => x.test(f));
 
   const all = splitDiff(collectDiff(o.repo, o.base, o.head, o.paths));
@@ -144,6 +144,10 @@ function build(o) {
 
   const readCapped = (f, cap) => { const t = fs.readFileSync(f, 'utf8'); return t.length > cap ? `${t.slice(0, cap)}\n[truncated at ${cap} characters]` : t; };
   const evidence = (o.evidence || []).map((f) => `### ${path.basename(f)}\n\n\`\`\`\n${readCapped(f, 20000)}\n\`\`\``);
+  for (const f of o.context || []) {
+    const abs = path.resolve(o.repo, f);
+    if (!abs.startsWith(path.resolve(o.repo) + path.sep)) throw new PackageError(2, `context file ${f} is outside the repository`);
+  }
   const context = (o.context || []).filter((f) => !isExcluded(f)).map((f) => `### ${f}\n\n\`\`\`\n${readCapped(path.join(o.repo, f), 40000)}\n\`\`\``);
   for (const f of (o.context || []).filter(isExcluded)) excluded.push({ path: f, reason: 'context file excluded by pattern' });
   const prior = round >= 2 ? JSON.parse(fs.readFileSync(o.prior, 'utf8')) : null;
@@ -171,7 +175,7 @@ function build(o) {
   const manifest = {
     package_version: 1, created: new Date().toISOString(), repo: path.basename(path.resolve(o.repo)),
     base: o.base, head: o.head || 'working-tree', paths: o.paths || null, depth: o.depth, surfaces: det.surfaces, signals: det.signals,
-    sections: selected, round, reason: o.reason || null,
+    sections: selected, round, reason: o.reason || null, owner_approval: round >= 3 ? o.ownerApproval : null,
     governance: { developer_commit: devCommit, sha256: sha256(govText), org_hash: o.governanceHash || null, rules: o.rules || [] },
     files: blocks.map((b) => ({ path: b.file, added: b.added, removed: b.removed })), excluded,
     bytes: Buffer.byteLength(parts), status: 'pending-scan',
@@ -200,12 +204,11 @@ function build(o) {
 }
 
 function parseArgs(argv) {
-  const o = {}; const list = ['evidence', 'context', 'rules', 'paths'];
+  const o = {}; const list = ['evidence', 'context', 'rules', 'paths', 'exclude'];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) throw new PackageError(2, `unexpected argument ${a}`);
     const k = a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-    if (k === 'ownerApproved') { o.ownerApproved = true; continue; }
     const v = argv[++i];
     if (v === undefined) throw new PackageError(2, `${a} needs a value`);
     o[k] = list.includes(k) ? v.split(',').map((s) => s.trim()).filter(Boolean) : v;
