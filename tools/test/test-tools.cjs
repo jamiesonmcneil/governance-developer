@@ -75,6 +75,12 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
     assert(code === 3, `expected 3, got ${code}`);
     fs.writeFileSync(path.join(repo, 'src/label.ts'), 'export const label = "Save changes";\n');
   });
+  await t('--paths limits the package to the logical change', () => {
+    fs.writeFileSync(path.join(repo, 'src/other.ts'), 'export const other = 1;\n');
+    const { manifest } = build(opts({ paths: ['src/label.ts'] }));
+    assert(manifest.files.map((f) => f.path).join() === 'src/label.ts', JSON.stringify(manifest.files));
+    fs.unlinkSync(path.join(repo, 'src/other.ts'));
+  });
   await t('round 2 needs a listed reason; round 3 needs owner approval', () => {
     const prior = path.join(tmp, 'prior.json'); fs.writeFileSync(prior, JSON.stringify({ findings: [{ id: 'F1', issue: 'x' }] }));
     let c1 = 0; try { build(opts({ round: '2', prior })); } catch (e) { c1 = e.code; }

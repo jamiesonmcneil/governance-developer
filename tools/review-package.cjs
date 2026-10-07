@@ -7,7 +7,7 @@
  *
  * node review-package.cjs --repo <dir> --base <ref> [--head <ref>] --depth low|normal|high
  *   --record <completion-record.md> [--evidence a.txt,b.log] [--context src/a.ts,src/b.ts]
- *   [--rules "path/RULES.md#Heading,..."] [--governance-hash <org effective hash>]
+ *   [--rules "path/RULES.md#Heading,..."] [--governance-hash <org effective hash>] [--paths dir/,file,...]
  *   --scanner "<command with {file}>" --out <dir>
  *   [--round 2 --prior <result.json> --reason material_issue|material_fix|unresolved_material|gate_required|owner_requested]
  *   [--round 3 --owner-approved]
@@ -66,10 +66,12 @@ function splitDiff(diff) {
   return blocks;
 }
 
-function collectDiff(repo, base, head) {
-  if (head) return git(repo, ['diff', '--no-color', '--no-ext-diff', '-U3', `${base}..${head}`]);
-  let d = git(repo, ['diff', '--no-color', '--no-ext-diff', '-U3', base]);
-  for (const f of git(repo, ['ls-files', '--others', '--exclude-standard']).split('\n').filter(Boolean)) {
+/** The logical change's diff. `paths` (optional) limits it to the files that make up the change. */
+function collectDiff(repo, base, head, paths) {
+  const spec = paths && paths.length ? ['--', ...paths] : [];
+  if (head) return git(repo, ['diff', '--no-color', '--no-ext-diff', '-U3', `${base}..${head}`, ...spec]);
+  let d = git(repo, ['diff', '--no-color', '--no-ext-diff', '-U3', base, ...spec]);
+  for (const f of git(repo, ['ls-files', '--others', '--exclude-standard', ...spec]).split('\n').filter(Boolean)) {
     const r = spawnSync('git', ['-C', repo, 'diff', '--no-color', '--no-index', '--', '/dev/null', f], { encoding: 'utf8' });
     d += `\n${r.stdout.replace(/^diff --git a\/\/dev\/null b\//m, `diff --git a/${f} b/`)}`;
   }
@@ -99,7 +101,7 @@ function build(o) {
   const excl = cfg.exclude.map((x) => new RegExp(x));
   const isExcluded = (f) => excl.some((x) => x.test(f));
 
-  const all = splitDiff(collectDiff(o.repo, o.base, o.head));
+  const all = splitDiff(collectDiff(o.repo, o.base, o.head, o.paths));
   if (!all.length) throw new PackageError(2, 'the diff is empty: nothing to review');
   const blocks = all.filter((b) => !isExcluded(b.file));
   const excluded = all.filter((b) => isExcluded(b.file)).map((b) => ({ path: b.file, reason: 'excluded by pattern (secrets, keys, environment or data files)' }));
@@ -164,7 +166,7 @@ function build(o) {
   const pkgFile = path.join(o.out, 'package.md');
   const manifest = {
     package_version: 1, created: new Date().toISOString(), repo: path.basename(path.resolve(o.repo)),
-    base: o.base, head: o.head || 'working-tree', depth: o.depth, surfaces: det.surfaces, signals: det.signals,
+    base: o.base, head: o.head || 'working-tree', paths: o.paths || null, depth: o.depth, surfaces: det.surfaces, signals: det.signals,
     sections: selected, round, reason: o.reason || null,
     governance: { developer_commit: devCommit, sha256: sha256(govText), org_hash: o.governanceHash || null, rules: o.rules || [] },
     files: blocks.map((b) => ({ path: b.file, added: b.added, removed: b.removed })), excluded,
@@ -194,7 +196,7 @@ function build(o) {
 }
 
 function parseArgs(argv) {
-  const o = {}; const list = ['evidence', 'context', 'rules'];
+  const o = {}; const list = ['evidence', 'context', 'rules', 'paths'];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) throw new PackageError(2, `unexpected argument ${a}`);
