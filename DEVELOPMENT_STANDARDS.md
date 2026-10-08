@@ -148,6 +148,7 @@ A change that skips this checklist is a change that will need rework.
 | Extract on the third use, not the second | The shape of the abstraction is clear by the third caller |
 | Promote to shared module when used across modules | Stays in the right scope as it grows |
 | Deployment-specific values are configuration, invariant domain constants may stay in code (D3) | A magic number that varies by environment is a config key |
+| One authoritative definition per business rule (D2) | Reuse it where technically appropriate; across a system boundary consume its result. Necessary replication is explicit, justified, tested against the authority and approved when material |
 
 ### Data layer
 
@@ -161,10 +162,41 @@ A change that skips this checklist is a change that will need rework.
 | Migrations idempotent and reversible | Production deploys need an out |
 | `SELECT *` never in app code; always list columns | Future schema additions don't surprise the app |
 
+### Environments and configuration defaults
+
+| Pattern | Why |
+|---|---|
+| Code that joins two systems verifies their environment identities are compatible before it reads or writes, and fails closed when it cannot | A development database paired with a production system writes test values into live records (D4) |
+| Each default is defined once, in the configuration source; call sites read the value and fail loudly if it is missing | A second copy of a default at a call site drifts and hides a missing setting (D3) |
+
+### Money and time
+
+| Pattern | Why |
+|---|---|
+| Money in integer minor units (cents) or a fixed-precision decimal, never binary floating point | Float sums lose cents, and a credit or billing decision built on them is wrong with no error (D6) |
+| Round once, explicitly, at a stated point | Rounding at several points gives totals that do not reconcile |
+| Times are zone-aware and stored to the project standard; arithmetic through a timezone-aware library | Local-time arithmetic breaks twice a year and across regions (D6) |
+
+### Concurrency and batch jobs
+
+| Pattern | Why |
+|---|---|
+| A job that can overlap with itself holds a lock or is idempotent by key | Two overlapping runs otherwise double-write or race (D7) |
+| A batch that stops midway leaves a known, safe state that the next run completes | Manual repair after a partial run is where data gets corrupted (D7) |
+| Every safety guard (limit, abort, refusal) has a test that makes it trigger | An untested guard is a guess (D8) |
+
+### Deviations and legacy code
+
+| Pattern | Why |
+|---|---|
+| A knowing departure from a Hard rule is raised before it is committed; a comment is never the approval | A comment that admits a copy or an exception records a decision nobody approved (D11) |
+| Existing code is not a precedent | Where the surrounding code and these standards disagree, new lines follow the standards and the old pattern is flagged (D12) |
+
 ---
 
 ## Anti-patterns (don't do these)
 
+- **A second definition of a business rule** — re-deriving a calculation that already exists, here or in the system you read from (D2)
 - **God classes / methods** — classes doing 7 things; methods 500 LOC long
 - **Magic numbers without context** — `if ($status == 23)` with no clue what 23 means
 - **Premature optimization** — micro-optimizing before profiling

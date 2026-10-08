@@ -21,6 +21,7 @@ departure is recorded, not approved. Every other item supports a Hard rule and a
 | External integrations, webhooks, outbound HTTP, message queues | §I, §5 |
 | Batch jobs, scheduled tasks, workers, imports | §B, §5, §8 |
 | Money, prices, rates, quantities that are billed | §F |
+| Code an AI assistant wrote or changed | §G |
 | UI | §X |
 | Large data, hot paths, loops over external calls | §8 |
 | Logging, metrics, alerts | §9 |
@@ -40,6 +41,7 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 1.5 | No new lint or build warnings |
 | 1.6 | Debug artefacts removed (stray prints, dumps, breakpoints, scratch code) |
 | 1.7 | The diff holds one concern; no unrelated changes mixed in |
+| 1.8 | The mechanical checks (the organization's scanners) report no blocking finding, and every advisory finding is fixed or answered in the completion record |
 
 ## §2 Configuration and hard-coded values (D3, D4)
 
@@ -53,6 +55,7 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 2.6 | Each default is defined once, in the configuration source, not repeated at call sites |
 | 2.7 | No environment-specific values in shared code or build artefacts |
 | 2.8 | Where a wrong environment pairing could cause harm, the code checks environment identity before acting and fails closed (D4) |
+| 2.9 | Feature flags and environment switches are read from configuration, never decided by a literal or an environment-name comparison |
 
 ## §3 Security (D5)
 
@@ -77,6 +80,12 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 3.17 | Least privilege: application database logins are not superusers; shared stores enforce isolation in the database as well as the application |
 | 3.18 | Private data stays out of AI calls, logs, exports and search |
 | 3.19 | A new data interface has a second-account test: another account cannot read, change or infer the data |
+| 3.20 | No secrets, credentials, protected personal data or proprietary code are placed in an AI prompt |
+| 3.21 | Cryptography uses approved algorithms and libraries; nothing home-made |
+| 3.22 | New dependencies are actively maintained, license-compatible with the project's use, and pinned in a lockfile |
+| 3.23 | Security events (sign-in failures, permission denials, configuration changes) are logged with context and without secrets |
+| 3.24 | Accounts the change uses hold only the rights it needs; read-only work uses a read-only login where one exists |
+| 3.25 | The compliance obligations that apply to the project (privacy law, payment card, audit frameworks) are met |
 
 ## §4 Reuse and structure (D1, D2, D13)
 
@@ -90,6 +99,10 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 4.6 | No speculative abstraction; extraction where reuse exists, a boundary is clear, or a near-term shared need is strong *(guideline, D13)* |
 | 4.7 | One name per concept across the codebase |
 | 4.8 | A poor surrounding pattern was not copied; a conflicting legacy pattern is flagged (D12) |
+| 4.9 | A knowing departure from a Hard rule was raised before the commit; a comment that admits a copy or an exception ("second copy", "keep in sync") is not approval (D11) |
+| 4.10 | Parameters carry intent, not implementation detail *(guideline)* |
+| 4.11 | One class per file where the language allows it *(guideline)* |
+| 4.12 | A utility useful beyond this project is noted so it can be promoted to a shared layer *(guideline)* |
 
 ## §5 Errors and resilience (D7)
 
@@ -104,6 +117,7 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 5.7 | Timeouts on every external call and long operation |
 | 5.8 | Resources are released on failure |
 | 5.9 | Error messages carry context for operators and leak nothing internal to users |
+| 5.10 | Critical paths raise an alert on failure, and the alert itself never aborts the path |
 
 ## §6 Naming and readability *(guideline)*
 
@@ -114,6 +128,9 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 6.3 | No dead code |
 | 6.4 | Complex logic has a short explanation of the approach |
 | 6.5 | Style matches the file and the project conventions |
+| 6.6 | Functions are verbs, classes are nouns, constants follow the language convention |
+| 6.7 | No abbreviations a new reader would have to decode |
+| 6.8 | Public interfaces have a one-line summary and their parameter and return shapes |
 
 ## §7 Tests (D8, D9)
 
@@ -126,6 +143,9 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 7.5 | Test data can reach the behavior claimed (D9) |
 | 7.6 | Mocks sit at boundaries the project does not own; the code under test is not mocked |
 | 7.7 | Tests do not depend on production systems or real customer data |
+| 7.8 | Tests fail when the behavior breaks: no assertion-free tests, and no test that reruns the implementation to compute its own expected value |
+| 7.9 | Slow tests are flagged or moved to a separate suite *(guideline)* |
+| 7.10 | Each test asserts one logical behavior *(guideline)* |
 
 ## §8 Performance
 
@@ -136,6 +156,10 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 8.3 | Complexity fits the realistic input size |
 | 8.4 | Indexes exist for the query shapes and are used (checked with the query plan) |
 | 8.5 | Caches have a TTL and a size cap |
+| 8.6 | Bulk operations are used instead of per-row calls where the volume warrants them |
+| 8.7 | Reads that grow with the data are paged or capped |
+| 8.8 | The rate limits and quotas of the systems called are known and checked before a bulk run |
+| 8.9 | Long-running operations report progress, so an operator can tell running from stuck |
 
 ## §9 Observability
 
@@ -145,6 +169,7 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 9.2 | Log payloads are bounded and redacted at one tested boundary |
 | 9.3 | Key counters are measurable; alerts fire only on meaningful failures |
 | 9.4 | Health checks check something real |
+| 9.5 | Logs are structured where the downstream sink benefits *(guideline)* |
 
 ## §10 Configuration management
 
@@ -154,6 +179,9 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 10.2 | Secrets come from the secret store or environment, never code, and never beside their encryption key |
 | 10.3 | New configuration keys are documented with what they control and why their default |
 | 10.4 | Defaults are safe: error rather than guess |
+| 10.5 | Required configuration is validated at start, before any work, so a missing value fails before a half-finished run |
+| 10.6 | Every feature flag and kill switch has an owner and a review date |
+| 10.7 | Configuration changes can be reverted without a redeploy |
 
 ## §11 Data layer
 
@@ -167,6 +195,10 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 11.6 | Material data changes are audited (who, what, when, before and after) |
 | 11.7 | Destructive operations have a verified backup first |
 | 11.8 | Long statements have a timeout; transactions are sized to avoid blocking writers |
+| 11.9 | New tables follow the project's data conventions: standard columns, naming, delete pattern and schema prefix |
+| 11.10 | Any change that touches production data goes through the organization's production confirmation protocol |
+| 11.11 | Times are stored zone-aware to the project standard, and date arithmetic uses a timezone-aware library (D6) |
+| 11.12 | Personal data is minimized: only the fields the purpose needs are read, stored or logged, and retention is defined |
 
 ## §12 Deployment and operability
 
@@ -177,6 +209,12 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 12.3 | A rollback path exists with exact steps |
 | 12.4 | Deployment does not overwrite environment-held configuration |
 | 12.5 | Documentation and runbooks are updated |
+| 12.6 | Commit messages follow the project convention *(guideline)* |
+| 12.7 | Service restarts drain in-flight work rather than killing it *(guideline)* |
+| 12.8 | Health is verified independently after the deploy, not inferred from the process running |
+| 12.9 | The project's tracker and session records reflect the change |
+| 12.10 | An integration documents its data flow: trigger, code path, endpoint and version, every write, error handling |
+| 12.11 | The completion record names the review depth, and the release tier where the organization defines tiers |
 
 ## §13 Adversarial pass (High depth)
 
@@ -192,6 +230,10 @@ One written sentence for each question that applies:
 8. What would a reader in six months wrongly assume this code does?
 9. If this is reverted, what state is left behind?
 10. What would an on-call engineer need at 2am that is missing?
+11. What is the most likely pushback from a senior reviewer, in the words they would use?
+12. Is anything duplicated that should be shared, or abstracted that should not be (D13)?
+13. Which rule was hardest to follow here, and was a departure raised (D11)?
+14. What does the test data not represent, and what risk remains (D9)?
 
 ## §A Authentication, authorization and scope
 
@@ -235,6 +277,19 @@ One written sentence for each question that applies:
 | F.4 | The calculation consumes or reuses the authoritative definition (D2), and tests compare against it |
 | F.5 | Tests include rounding boundaries, zero, negatives and refunds as applicable |
 
+## §G Code written or changed by an AI assistant
+
+The failure patterns seen in AI-authored work: confident claims without evidence, invented interfaces, and the
+surrounding code taken as permission.
+
+| # | Check |
+|---|---|
+| G.1 | Every function, method, package, configuration key and API the change relies on exists, verified by running or searching (D14) |
+| G.2 | Every Hard-rule claim in a High record carries its evidence: a test name, a command and its result, or a file and line |
+| G.3 | Every departure from a Hard rule was raised before the commit (D11) |
+| G.4 | Testing claims say exactly what ran, where, on what data, and what was not exercised (D10) |
+| G.5 | The surrounding code was not used as permission (D12) |
+
 ## §P PHP
 
 | # | Check |
@@ -246,6 +301,9 @@ One written sentence for each question that applies:
 | P.5 | A typed exception hierarchy |
 | P.6 | Dependencies declared through Composer |
 | P.7 | No `eval`, `extract`, `assert` or `unserialize` on untrusted input; no deep `$GLOBALS` mutation |
+| P.8 | `declare(strict_types=1)` in new files where the runtime and surrounding code allow it *(guideline)* |
+| P.9 | Formatting follows PSR-12 or the project convention, consistently *(guideline)* |
+| P.10 | Static analysis (PHPStan, Psalm) is clean on changed files at the project's agreed level, where the project has one |
 
 ## §T TypeScript, JavaScript and Next.js
 
@@ -259,6 +317,10 @@ One written sentence for each question that applies:
 | T.6 | Production build succeeds, not only the dev server |
 | T.7 | Error boundaries where asynchronous UI can fail |
 | T.8 | Client bundle impact of new dependencies considered |
+| T.9 | Request input is validated with a runtime schema at the API boundary; types alone do not validate input |
+| T.10 | No secret or server-only value reaches a client bundle, checked in the built output |
+| T.11 | No unused imports or variables |
+| T.12 | Image, font and static asset optimization is used where the framework provides it *(guideline)* |
 
 ## §S SQL and schema
 
@@ -271,6 +333,8 @@ One written sentence for each question that applies:
 | S.5 | Index and constraint names are explicit |
 | S.6 | Timestamps are timezone-aware where wall-clock time matters |
 | S.7 | Sensitive columns are marked or encrypted |
+| S.8 | Dynamic identifiers (table, column and sort names) come from a fixed allowlist, never from input |
+| S.9 | New tables are registered in the project's data dictionary or schema documentation |
 
 ## §X User interface
 

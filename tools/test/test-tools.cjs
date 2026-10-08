@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { build } = require('../review-package.cjs');
+const { build, sectionsOnly } = require('../review-package.cjs');
 const { runReview, normalize } = require('../review-run.cjs');
 
 let pass = 0; const fails = [];
@@ -206,6 +206,107 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
     assert(py(['--repo', '--config', cfg]).status === 2, 'allow without reason accepted');
     fs.writeFileSync(cfg, JSON.stringify({ blocking: ['DC999'] }));
     assert(py(['--repo', '--config', cfg]).status === 2, 'unknown id accepted');
+  });
+
+  // Opt-in capabilities an organization enables and tunes in its own config.
+  const optCfg = path.join(tmp, 'opt.json');
+  fs.writeFileSync(optCfg, JSON.stringify({
+    enabled: ['DC014', 'DC015', 'DC016', 'DC017', 'DC018', 'DC019', 'DC020', 'DC021', 'DC022'],
+    blocking: ['DC001', 'DC002', 'DC004', 'DC008', 'DC013', 'DC014', 'DC016', 'DC017', 'DC021'],
+    code_extensions: ['cfm'], ticket_pattern: '\\bwi\\s?\\d+|#\\d+',
+    config_read_patterns: ["Cfg::get\\(\\s*'(?P<var>[^']+)'\\s*,\\s*[^)\\s]"],
+    thresholds: { dup_min_lines: 3, dup_block_min_lines: 6, config_default_min_sites: 1 } }));
+  const scanFile = (rel, body, cfg = optCfg) => { fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true }); fs.writeFileSync(path.join(repo, rel), body); return JSON.parse(py(['--files', rel, '--config', cfg, '--json']).stdout).findings; };
+  const ids = (f) => f.map((x) => `${x.rule}:${x.level}`).sort().join(',');
+  await t('scan-code: opt-in rules are off unless the organization enables them', () => {
+    fs.writeFileSync(path.join(repo, 'src/h.ts'), "const u = 'https://api.vendor.com/v1';\n// TODO tidy this\n");
+    const j = JSON.parse(py(['--files', 'src/h.ts', '--json']).stdout);
+    assert(!j.findings.some((f) => ['DC014', 'DC016'].includes(f.rule)), JSON.stringify(j.findings));
+  });
+  await t('scan-code: host literals block in application code, advise in scripts and markup, and skip schemas and config', () => {
+    assert(ids(scanFile('src/h.ts', "const u = 'https://api.vendor.com/v1';\n")) === 'DC014:blocking', 'app host');
+    assert(ids(scanFile('scripts/once.ts', "const u = 'https://api.vendor.com/v1';\n")) === 'DC015:advisory', 'script host');
+    assert(ids(scanFile('src/x.ts', "const ns = 'http://www.w3.org/2000/svg';\nconst t = `https://${host}/x`;\n")) === '', 'schema or templated host flagged');
+    assert(ids(scanFile('src/id.ts', "const t = 'https://login.microsoftonline.com/x';\n")) === 'DC014:blocking', 'a vendor endpoint is allowed by default');
+    const hostCfg = path.join(tmp, 'host.json'); fs.writeFileSync(hostCfg, JSON.stringify({ enabled: ['DC014'], blocking: ['DC014'], host_allow: [{ pattern: 'login\\.microsoftonline\\.com', reason: 'identity endpoint' }] }));
+    assert(ids(scanFile('src/id.ts', "const t = 'https://login.microsoftonline.com/x';\n", hostCfg)) === '', 'an organization host_allow entry did not apply');
+    assert(ids(scanFile('config/app.ts', "export const API = 'https://api.vendor.com';\n")) === '', 'config module flagged');
+    assert(ids(scanFile('src/c.ts', "const n = 1; // see https://docs.vendor.com/page\n")) === '', 'a URL in a trailing comment was flagged');
+  });
+  await t('scan-code: TODO needs the organization ticket format; deviation comments block, broad wording advises', () => {
+    assert(ids(scanFile('src/t.ts', "// TODO tidy this\n// TODO wi 123 tidy\n// FIXME #44\n")) === 'DC016:blocking', 'ticket rule');
+    assert(ids(scanFile('src/d.ts', "// second copy of the parser\n")) === 'DC017:blocking', 'strong deviation');
+    assert(ids(scanFile('src/e.ts', "// temporary workaround until the vendor fixes it\n")) === 'DC018:advisory', 'broad deviation');
+    assert(ids(scanFile('src/f.ts', "// one helper, instead of a second copy\n")) === 'DC018:advisory', 'a negated strong phrase is advisory only');
+  });
+  await t('scan-code: any literal config default can block when the organization sets min sites to 1; throw and empty defaults do not', () => {
+    assert(ids(scanFile('src/k.php', "<?php $a = $_ENV['A'] ?? 'x';\n")) === 'DC008:blocking', '$_ENV default');
+    assert(ids(scanFile('src/k.php', "<?php $a = getenv('A') ?: throw new RuntimeException('A');\n$b = $_ENV['B'] ?? throw new RuntimeException('B');\n")) === '', 'throw counted as a default');
+    assert(ids(scanFile('src/k.ts', "const a = process.env.A ?? '';\n")) === 'DC019:advisory', 'empty default');
+    assert(ids(scanFile('src/k.php', "<?php $v = Cfg::get('limit', 25);\n")) === 'DC008:blocking', 'organization config read');
+  });
+  await t('scan-code: portable fixes (CURLOPT array form, extract, print_r return mode, dd definition, CFML Evaluate)', () => {
+    assert(ids(scanFile('src/p.php', "<?php $o = [CURLOPT_SSL_VERIFYPEER => false];\nextract($_POST);\n$s = print_r($x, true);\nfunction dd($v) { }\n")) === 'DC001:blocking,DC002:blocking', 'php fixes');
+    assert(ids(scanFile('src/v.cfm', '<cfset x = Evaluate("a" & b)>\n')) === 'DC021:blocking', 'cfml evaluate');
+    assert(ids(scanFile('src/q.php', "<?php error_log('x: ' . print_r(error_get_last(), true));\n$out = exec($cmd);\n")) === 'DC002:blocking', 'print_r return mode with a nested call, or PHP exec');
+    assert(ids(scanFile('src/q.js', 'const out = exec(cmd);\n')) === 'DC002:blocking', 'a JavaScript exec() is not flagged');
+    const ff = 'const a = 1;\f// form feed in a line\nconst f = eval(x);\n';
+    const patchFF = path.join(tmp, 'ff.diff');
+    fs.writeFileSync(patchFF, `diff --git a/src/ff.ts b/src/ff.ts\n--- a/src/ff.ts\n+++ b/src/ff.ts\n@@ -0,0 +1,2 @@\n+${ff.split('\n')[0]}\n+${ff.split('\n')[1]}\n`);
+    const jf = JSON.parse(py(['--patch', patchFF, '--config', optCfg, '--json']).stdout);
+    assert(jf.findings.length === 1 && jf.findings[0].line === 2, `a form feed shifted line numbers: ${JSON.stringify(jf.findings)}`);
+  });
+  await t('scan-code: duplication blocks long copies, advises short ones and copies in tests', () => {
+    const block = (n) => Array.from({ length: n }, (_, i) => `  total = total + item${i}.price * rate${i};`).join('\n');
+    fs.writeFileSync(path.join(repo, 'src/orig.ts'), `export function a() {\n${block(8)}\n}\n`);
+    sh(repo, 'add', '-A'); sh(repo, 'commit', '-qm', 'orig');
+    fs.writeFileSync(path.join(repo, 'src/copy.ts'), `export function b() {\n${block(8)}\n}\n`);
+    fs.writeFileSync(path.join(repo, 'src/short.ts'), `export function c() {\n${block(4)}\n}\n`);
+    fs.mkdirSync(path.join(repo, 'tests'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'tests/copy.test.ts'), `test('x', () => {\n${block(8)}\n});\n`);
+    sh(repo, 'add', '-A');
+    const f = JSON.parse(py(['--staged', '--config', optCfg, '--json']).stdout).findings.filter((x) => x.rule.startsWith('DC01') || x.rule === 'DC022');
+    const by = (p) => f.filter((x) => x.path === p).map((x) => `${x.rule}:${x.level}`).join();
+    assert(by('src/copy.ts') === 'DC013:blocking', `long copy: ${by('src/copy.ts')}`);
+    assert(by('src/short.ts') === 'DC022:advisory', `short copy: ${by('src/short.ts')}`);
+    assert(by('tests/copy.test.ts') === 'DC022:advisory', `test copy: ${by('tests/copy.test.ts')}`);
+    sh(repo, 'commit', '-qm', 'copies');
+  });
+  await t('scan-code: --patch reads a unified diff on disk', () => {
+    const patch = path.join(tmp, 'p.diff');
+    fs.writeFileSync(patch, "diff --git a/src/z.ts b/src/z.ts\n--- a/src/z.ts\n+++ b/src/z.ts\n@@ -0,0 +1,1 @@\n+const f = eval(x);\n");
+    const j = JSON.parse(py(['--patch', patch, '--config', optCfg, '--json']).stdout);
+    assert(ids(j.findings) === 'DC002:blocking', ids(j.findings));
+  });
+  await t('scan-code: config errors exit 2 (bad regex, bad threshold)', () => {
+    const bad = path.join(tmp, 'bad.json');
+    fs.writeFileSync(bad, JSON.stringify({ host_allow: ['('] }));
+    assert(py(['--repo', '--config', bad]).status === 2, 'bad regex accepted');
+    fs.writeFileSync(bad, JSON.stringify({ thresholds: { dup_min_lines: 0 } }));
+    assert(py(['--repo', '--config', bad]).status === 2, 'bad threshold accepted');
+    fs.writeFileSync(bad, JSON.stringify({ exclude_paths: [{ path: 'vendor2/' }] }));
+    assert(py(['--repo', '--config', bad]).status === 2, 'an exclusion object without a reason accepted');
+    fs.writeFileSync(bad, JSON.stringify({ exclude_paths: [{ path: '^src/', reason: 'bulk import' }] }));
+    const r = py(['--files', 'src/bad.ts', '--config', bad, '--json']);
+    assert(r.status === 0 && JSON.parse(r.stdout).findings.length === 0, 'an exclusion object did not exclude');
+  });
+
+  // review-package.cjs: the author's own section list, and organization surface additions.
+  await t('sections-only lists the sections for the author without a record or scanner', () => {
+    fs.writeFileSync(path.join(repo, 'src/label.ts'), 'export const label = "Saved";\n');
+    const r = sectionsOnly({ repo, base: 'HEAD', depth: 'normal' });
+    assert(r.sections.includes('§1') && r.sections.includes('§T') && /## §1 Baseline/.test(r.text), r.sections.join(','));
+    const low = sectionsOnly({ repo, base: 'HEAD', depth: 'low' });
+    assert(low.sections.length === 0 && low.text === '', 'low selected sections');
+  });
+  await t('surfaces-add merges organization surfaces and base sections into the default map', () => {
+    const add = path.join(tmp, 'add.json');
+    fs.writeFileSync(add, JSON.stringify({ surfaces: { labels: { paths: ['(^|/)label\\.ts$'], sections: ['§X'] } }, base_sections: { normal: ['§G'] } }));
+    const r = sectionsOnly({ repo, base: 'HEAD', depth: 'normal', surfacesAdd: add });
+    assert(r.sections.includes('§G') && r.sections.includes('§X') && r.sections.includes('§T'), r.sections.join(','));
+    fs.writeFileSync(add, JSON.stringify({ base_sections: { extreme: ['§G'] } }));
+    let msg = ''; try { sectionsOnly({ repo, base: 'HEAD', depth: 'normal', surfacesAdd: add }); } catch (e) { msg = e.message; }
+    assert(/unknown depth/.test(msg), msg);
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

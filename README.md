@@ -25,9 +25,9 @@ above it, and an organization may add strictness on top of it.
 | `CODE_REVIEW.md` | The reference checklist, loaded by surface |
 | `DEVELOPMENT_STANDARDS.md` | The patterns behind the rules |
 | `roles/dev.md` | The Developer role: may, must, must not |
-| `tools/review-package.cjs` | Builds the smallest sufficient review package from these sources, secret-scans it, records the governance hash |
+| `tools/review-package.cjs` | Builds the smallest sufficient review package from these sources, secret-scans it, records the governance hash; `--sections-only` prints the CODE_REVIEW sections a change's depth and surfaces select, for the author's own review; `--surfaces-add` merges an organization's surface additions |
 | `tools/review-run.cjs` | Runs one review through reviewers the organization injects; bounded retry, recorded fallback, normalized result, never a pass on failure |
-| `tools/scan-code.py` | Deterministic code checks; everything advisory until an organization measures a rule and lists it as blocking |
+| `tools/scan-code.py` | Deterministic code checks; everything advisory until an organization measures a rule and lists it as blocking. Opt-in rules, thresholds, exclusions and patterns (ticket format, configuration reads, allowed hosts) are set in the organization's config; a code comment never suppresses a finding |
 | `tools/surfaces.json` | Default surface detection and section selection |
 
 Run the tooling tests with `node tools/test/test-tools.cjs` (needs node, python3 and git).

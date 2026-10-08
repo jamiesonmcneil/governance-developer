@@ -11,6 +11,13 @@
  *   --scanner "<command with {file}>" --out <dir>
  *   [--round 2 --prior <result.json> --reason material_issue|material_fix|unresolved_material|gate_required|owner_requested]
  *   [--round 3 --owner-approval "<who, when, where it was given>"] [--exclude <regex,...>]
+ *   [--surfaces <file>]       replace the default surface map
+ *   [--surfaces-add <file>]   add the organization's surfaces, base sections and exclusions to the default map
+ *
+ * node review-package.cjs --sections-only 1 --repo <dir> --base <ref> [--head <ref>] --depth low|normal|high
+ *   [--paths ...] [--surfaces-add <file>]
+ *   prints the CODE_REVIEW sections the depth and the touched surfaces select, for the author's own review
+ *   (REVIEW_METHOD.md section 3); no record, scanner or package is needed or written.
  *
  * Exit: 0 package ready; 2 usage; 3 blocked by the secret scan (nothing is left to send); 4 over the size
  * budget for the depth; 5 depth below the minimum the surfaces force; 6 a round not allowed.
@@ -91,19 +98,26 @@ function detectSurfaces(blocks, cfg) {
   return { surfaces, signals, sections: [...sections], minDepth: forced.has('high') ? 'high' : null };
 }
 
-function build(o) {
-  for (const k of ['repo', 'base', 'depth', 'record', 'scanner', 'out']) if (!o[k]) throw new PackageError(2, `--${k} is required`);
-  if (!DEPTHS.includes(o.depth)) throw new PackageError(2, `--depth must be one of ${DEPTHS.join(', ')}`);
-  // The scanner must be handed the exact package file, or it would pass without reading what is sent.
-  if (!/\{file\}/.test(o.scanner)) throw new PackageError(2, '--scanner must contain {file}: the scan has to read the exact package that would be transmitted');
-  const round = Number(o.round || 1);
-  if (round === 2 && (!o.prior || !ROUND2_REASONS.includes(o.reason)))
-    throw new PackageError(6, `a second round needs --prior <result.json> and --reason one of ${ROUND2_REASONS.join(', ')} (REVIEW_METHOD 4.6)`);
-  if (round >= 3 && (typeof o.ownerApproval !== 'string' || o.ownerApproval.trim().length < 10)) throw new PackageError(6, 'a third review round requires the owner\'s explicit approval, recorded as --owner-approval "<who, when, where it was given>"');
+/** The surface map: the default, or a replacement, plus any organization additions. */
+function loadSurfaces(o) {
   const cfg = JSON.parse(fs.readFileSync(o.surfaces || path.join(__dirname, 'surfaces.json'), 'utf8'));
+  if (o.surfacesAdd) {
+    const add = JSON.parse(fs.readFileSync(o.surfacesAdd, 'utf8'));
+    Object.assign(cfg.surfaces, add.surfaces || {});
+    for (const [d, list] of Object.entries(add.base_sections || {})) {
+      if (!DEPTHS.includes(d)) throw new PackageError(2, `--surfaces-add: unknown depth ${d} in base_sections`);
+      cfg.base_sections[d] = [...new Set([...(cfg.base_sections[d] || []), ...list])];
+    }
+    cfg.exclude = [...cfg.exclude, ...(add.exclude || [])];
+  }
+  return cfg;
+}
+
+/** The touched surfaces and the CODE_REVIEW sections the depth and those surfaces select. */
+function selection(o) {
+  const cfg = loadSurfaces(o);
   const excl = [...cfg.exclude, ...(o.exclude || [])].map((x) => new RegExp(x, 'i'));
   const isExcluded = (f) => excl.some((x) => x.test(f));
-
   const all = splitDiff(collectDiff(o.repo, o.base, o.head, o.paths));
   if (!all.length) throw new PackageError(2, 'the diff is empty: nothing to review');
   const blocks = all.filter((b) => !isExcluded(b.file));
@@ -115,18 +129,40 @@ function build(o) {
     throw new PackageError(5, `depth ${o.depth} is below ${det.minDepth}, which the touched surfaces force (${det.surfaces.join(', ')})`);
   if (o.depth === 'low' && changed > cfg.low_max_changed_lines)
     throw new PackageError(5, `depth low allows at most ${cfg.low_max_changed_lines} changed lines; this change has ${changed}`);
-
-  // Governance, from the canonical sources only.
-  const rulesTxt = readGov('DEVELOPER_RULES.md'); const methodTxt = readGov('REVIEW_METHOD.md');
-  const crTxt = readGov('CODE_REVIEW.md'); const verTxt = readGov('VERIFICATION.md');
-  const gov = [
-    needSection('DEVELOPER_RULES.md', rulesTxt, (h) => h === 'Hard rules and guidelines', 'Hard rules and guidelines'),
-    needSection('DEVELOPER_RULES.md', rulesTxt, (h) => h === 'The rules', 'The rules'),
-  ];
+  const crTxt = readGov('CODE_REVIEW.md');
   const selected = o.depth === 'low' ? [] : [...new Set([...cfg.base_sections[o.depth], ...det.sections])];
   const order = (s) => { const i = crTxt.indexOf(`## ${s} `); return i < 0 ? Infinity : i; };
   selected.sort((a, b) => order(a) - order(b));
   const crSections = selected.map((s) => needSection('CODE_REVIEW.md', crTxt, (h) => h.startsWith(`${s} `), s));
+  return { cfg, blocks, excluded, isExcluded, changed, det, selected, crSections };
+}
+
+/** For the author's own review: the sections to apply, with no package built. */
+function sectionsOnly(o) {
+  for (const k of ['repo', 'base', 'depth']) if (!o[k]) throw new PackageError(2, `--${k} is required`);
+  if (!DEPTHS.includes(o.depth)) throw new PackageError(2, `--depth must be one of ${DEPTHS.join(', ')}`);
+  const { det, selected, crSections, changed } = selection(o);
+  return { depth: o.depth, surfaces: det.surfaces, signals: det.signals, sections: selected, changed, text: crSections.join('\n\n') };
+}
+
+function build(o) {
+  for (const k of ['repo', 'base', 'depth', 'record', 'scanner', 'out']) if (!o[k]) throw new PackageError(2, `--${k} is required`);
+  if (!DEPTHS.includes(o.depth)) throw new PackageError(2, `--depth must be one of ${DEPTHS.join(', ')}`);
+  // The scanner must be handed the exact package file, or it would pass without reading what is sent.
+  if (!/\{file\}/.test(o.scanner)) throw new PackageError(2, '--scanner must contain {file}: the scan has to read the exact package that would be transmitted');
+  const round = Number(o.round || 1);
+  if (round === 2 && (!o.prior || !ROUND2_REASONS.includes(o.reason)))
+    throw new PackageError(6, `a second round needs --prior <result.json> and --reason one of ${ROUND2_REASONS.join(', ')} (REVIEW_METHOD 4.6)`);
+  if (round >= 3 && (typeof o.ownerApproval !== 'string' || o.ownerApproval.trim().length < 10)) throw new PackageError(6, 'a third review round requires the owner\'s explicit approval, recorded as --owner-approval "<who, when, where it was given>"');
+  const { cfg, blocks, excluded, isExcluded, changed, det, selected, crSections } = selection(o);
+
+  // Governance, from the canonical sources only.
+  const rulesTxt = readGov('DEVELOPER_RULES.md'); const methodTxt = readGov('REVIEW_METHOD.md');
+  const verTxt = readGov('VERIFICATION.md');
+  const gov = [
+    needSection('DEVELOPER_RULES.md', rulesTxt, (h) => h === 'Hard rules and guidelines', 'Hard rules and guidelines'),
+    needSection('DEVELOPER_RULES.md', rulesTxt, (h) => h === 'The rules', 'The rules'),
+  ];
   if (o.depth !== 'low') {
     gov.push(needSection('VERIFICATION.md', verTxt, (h) => h.startsWith('2. '), 'VERIFICATION 2'));
     gov.push(needSection('VERIFICATION.md', verTxt, (h) => h.startsWith('3. '), 'VERIFICATION 3'));
@@ -216,11 +252,18 @@ function parseArgs(argv) {
   return o;
 }
 
-module.exports = { build, section, splitDiff, detectSurfaces, PackageError, ROUND2_REASONS };
+module.exports = { build, sectionsOnly, section, splitDiff, detectSurfaces, PackageError, ROUND2_REASONS };
 
 if (require.main === module) {
   try {
-    const { manifest, packageFile } = build(parseArgs(process.argv.slice(2)));
+    const opts = parseArgs(process.argv.slice(2));
+    if (opts.sectionsOnly) {
+      const r = sectionsOnly(opts);
+      console.log(`Depth ${r.depth}; ${r.changed} changed lines; surfaces: ${r.surfaces.join(', ') || 'none'}${Object.keys(r.signals).length ? `; possible (check): ${Object.keys(r.signals).join(', ')}` : ''}; sections: ${r.sections.join(' ') || 'none (Low: D1 to D15, the mechanical checks and the tests are the review)'}\n`);
+      if (r.text) console.log(r.text);
+      process.exit(0);
+    }
+    const { manifest, packageFile } = build(opts);
     console.log(`review package ready: ${packageFile} (${manifest.bytes} bytes, depth ${manifest.depth}, sections ${manifest.sections.join(' ') || 'none'})`);
   } catch (e) {
     console.error(`review-package: ${e.message}`);
