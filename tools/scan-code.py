@@ -57,6 +57,8 @@ CODE = r'\.(' + '|'.join(CODE_EXTS) + r')$'
 JS = r'\.(ts|tsx|js|jsx|mjs|cjs)$'
 TEST = r'(\.(test|spec)\.[a-z]+$|(^|/)(tests?|__tests__|__mocks__|spec|e2e|fixtures?)/|Test\.php$)'
 DOC = r'\.(md|mdx|txt|rst)$'
+TEST_CODE = r'^(?=.*' + CODE + r').*' + TEST
+ASSERTION = re.compile(r'\b(expect|assert\w*)\s*[(.]|\.should\b|\$this->assert\w*\s*\(')
 SCRIPT_PATHS = [r'(^|/)(scripts?|bin|tools)/']
 CONFIG_PATHS = [r'(^|/)(config|settings|conf)(/|$)', r'(^|/)[\w.-]*(config|settings|env)\.(ts|js|mjs|cjs|php|inc|py)$',
                 r'(^|/)next\.config\.', r'(^|/)\.env']
@@ -133,6 +135,11 @@ RULES = [
      'D3: a numeric literal of three or more digits with no comment; name it or read it from configuration', 'code', True),
     ('DC021', 'cfml-evaluate', r'\.(cfc|cfm)$', r'(?i)\bevaluate\s*\(', None, None,
      'D5: CFML Evaluate executes a string; use structure or bracket access', 'code', True),
+    ('DC023', 'test-skipped', TEST_CODE,
+     r'\b(it|test|describe|context|suite)\.(skip|only)\s*\(|(?<![\w.])(xit|xdescribe|xtest|xcontext|fit|fdescribe)\s*\(|@pytest\.mark\.(skip|skipif|xfail)\b|\bpytest\.skip\s*\(|@unittest\.skip|\bmarkTest(Skipped|Incomplete)\s*\(|\bt\.Skip(Now|f)?\s*\(',
+     None, r'^\s*(//|#|\*)', 'D8: a test is not skipped or focused to make a build pass', 'code', False),
+    # DC024 is matched by weakened_tests() on the diff; this row carries its metadata.
+    ('DC024', 'test-weakened', TEST_CODE, None, None, None, 'D8: a test is not weakened to make a build pass', 'line', False),
 ]
 DUP_RULES = [('DC013', 'possible-duplication', False), ('DC022', 'possible-duplication-short', True)]
 OPT_IN = {r[0] for r in RULES if r[8]} | {d[0] for d in DUP_RULES if d[2]}
@@ -233,6 +240,30 @@ def added_lines(diff_text):
             line += 1
         elif path and not raw.startswith('-') and not raw.startswith('\\'):
             line += 1
+
+
+def weakened_tests(diff_text, excluded):
+    """DC024: test files deleted, or losing more assertion lines than they gain, in a unified diff."""
+    out, old, new, counts = [], None, None, defaultdict(lambda: [0, 0])
+    rows = diff_text.split('\n')
+    for i, raw in enumerate(rows):
+        if raw.startswith('--- ') and i + 1 < len(rows) and rows[i + 1].startswith('+++ '):
+            o = raw[4:].strip()
+            old = None if o == '/dev/null' else re.sub(r'^a/', '', o)
+        elif raw.startswith('+++ ') and i > 0 and rows[i - 1].startswith('--- '):
+            n = raw[4:].strip()
+            new = None if n == '/dev/null' else re.sub(r'^b/', '', n)
+            if new is None and old and re.search(TEST_CODE, old) and not excluded(old):
+                out.append(['DC024', META['DC024'][0], old, 0, 'test file deleted', META['DC024'][1]])
+        elif (new or old) and raw[:1] in '+-' and ASSERTION.search(raw[1:]):
+            p = new or old
+            if re.search(TEST_CODE, p) and not excluded(p):
+                counts[p][0 if raw[0] == '-' else 1] += 1
+    deleted = {f[2] for f in out}
+    for p, (removed, added) in counts.items():
+        if removed > added and p not in deleted:
+            out.append(['DC024', META['DC024'][0], p, 0, f'{removed} assertion line(s) removed, {added} added', META['DC024'][1]])
+    return out
 
 
 def file_lines(root, paths):
@@ -444,16 +475,19 @@ def main(argv):
         parts = interp.findall(t)
         return bool(parts) and bool(safe_sql) and all(any(x.match(pt.strip()) for x in safe_sql) for pt in parts)
 
+    diff_text = None
     try:
         if mode == 'staged':
-            lines = list(added_lines(git(root, 'diff', '--cached', '-U0', '--no-color', '--no-ext-diff')))
+            diff_text = git(root, 'diff', '--cached', '-U0', '--no-color', '--no-ext-diff')
         elif mode == 'diff':
-            lines = list(added_lines(git(root, 'diff', args['ref'], '-U0', '--no-color', '--no-ext-diff')))
+            diff_text = git(root, 'diff', args['ref'], '-U0', '--no-color', '--no-ext-diff')
         elif mode == 'commit':
-            lines = list(added_lines(git(root, 'show', args['ref'], '--format=', '-U0', '--no-color', '--no-ext-diff', '--first-parent')))
+            diff_text = git(root, 'show', args['ref'], '--format=', '-U0', '--no-color', '--no-ext-diff', '--first-parent')
         elif mode == 'patch':
             with open(args['ref'], encoding='utf-8', errors='replace') as f:
-                lines = list(added_lines(f.read()))
+                diff_text = f.read()
+        if diff_text is not None:
+            lines = list(added_lines(diff_text))
         elif mode == 'repo':
             lines = list(file_lines(root, git(root, 'ls-files').splitlines()))
         else:
@@ -508,6 +542,8 @@ def main(argv):
             elif rid == 'DC018':
                 strong = DEVIATION_STRONG.search(comment) and not DEVIATION_NEGATED.search(comment)
                 hit = not strong and bool(DEVIATION_STRONG.search(comment) or DEVIATION_BROAD.search(comment))
+            elif rid == 'DC024':
+                continue
             elif rid == 'DC020':
                 hit = not comment.strip() and not CONST_DECL.search(code) and bool(lr.search(code))
             else:
@@ -535,6 +571,9 @@ def main(argv):
             for f in findings:
                 if f[0] == 'DC008':
                     f[6] = bool(f[6]) and len(sites.get(f[6], ())) >= min_sites
+
+    if active('DC024') and diff_text is not None:
+        findings += weakened_tests(diff_text, excluded)
 
     if active('DC013') and mode not in ('repo', 'patch'):
         try:

@@ -309,6 +309,24 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
     assert(/unknown depth/.test(msg), msg);
   });
 
+  await t('scan-code: a skip added and assertions removed in a test are found; a stronger test is not', () => {
+    const tr = path.join(tmp, 'tests-repo'); fs.mkdirSync(tr);
+    sh(tr, 'init', '-q', '-b', 'main'); sh(tr, 'config', 'user.email', 't@example.com'); sh(tr, 'config', 'user.name', 't');
+    const spec = path.join(tr, 'sum.test.ts');
+    fs.writeFileSync(spec, "it('adds', () => {\n  expect(sum(1, 2)).toBe(3);\n  expect(sum(0, 0)).toBe(0);\n});\n");
+    sh(tr, 'add', '.'); sh(tr, 'commit', '-qm', 'spec');
+    const found = () => JSON.parse(py(['--staged', '--json'], tr).stdout).findings.filter((f) => /DC02[34]/.test(f.rule));
+    fs.writeFileSync(spec, "it.skip('adds', () => {\n  expect(sum(1, 2)).toBe(3);\n});\n"); sh(tr, 'add', '.');
+    const rules = found().map((f) => f.rule).sort().join();
+    assert(rules === 'DC023,DC024', rules);
+    fs.writeFileSync(spec, "it('adds', () => {\n  expect(sum(1, 2)).toBe(3);\n  expect(sum(0, 0)).toBe(0);\n  expect(sum(-1, 1)).toBe(0);\n});\n");
+    sh(tr, 'add', '.');
+    assert(found().length === 0, JSON.stringify(found()));
+    sh(tr, 'commit', '-qm', 'stronger'); sh(tr, 'rm', '-q', 'sum.test.ts');
+    const del = found();
+    assert(del.length === 1 && del[0].rule === 'DC024' && /deleted/.test(del[0].text), JSON.stringify(del));
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(`\n${pass} passed, ${fails.length} failed`);
   process.exit(fails.length ? 1 : 0);

@@ -51,7 +51,7 @@ acceptable report; "done" without the evidence is not.
 
 ## 4. Failures and regressions
 
-- A bug fix starts with a failing test that reproduces it, where practical (D8), and the test is kept.
+- A bug fix starts with a failing test that reproduces it (D8), and the test is kept.
 - Existing tests are run, not only the new ones; a test that starts failing is investigated, never deleted
   or weakened to pass.
 - A flaky result is not a pass.

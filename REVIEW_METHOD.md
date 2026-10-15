@@ -44,6 +44,9 @@ Only then does an independent review start, if one is required. An independent r
 what the author missed. It is never the mechanism that finds ordinary mistakes the author should have
 caught: "write code, then ask another model whether it is good" is not this method.
 
+A defect that reaches production despite review gets a test or deterministic check that would have caught
+it. A CODE_REVIEW line is added only when neither is possible.
+
 ## 4. Independent review, when policy requires one
 
 ### 4.1 Defaults

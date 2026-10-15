@@ -86,6 +86,8 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 3.23 | Security events (sign-in failures, permission denials, configuration changes) are logged with context and without secrets |
 | 3.24 | Accounts the change uses hold only the rights it needs; read-only work uses a read-only login where one exists |
 | 3.25 | The compliance obligations that apply to the project (privacy law, payment card, audit frameworks) are met |
+| 3.26 | MCP servers and agent plugins are treated as dependencies: reviewed before use and pinned to a version |
+| 3.27 | No instruction-like text aimed at an AI hides in comments, strings, docs or commit messages of the diff |
 
 ## §4 Reuse and structure (D1, D2, D13)
 
@@ -146,6 +148,7 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 7.8 | Tests fail when the behavior breaks: no assertion-free tests, and no test that reruns the implementation to compute its own expected value |
 | 7.9 | Slow tests are flagged or moved to a separate suite *(guideline)* |
 | 7.10 | Each test asserts one logical behavior *(guideline)* |
+| 7.11 | No test was weakened to pass (assertion edited, test deleted, skip added); a test changed for new intended behavior says so (D8) |
 
 ## §8 Performance
 
