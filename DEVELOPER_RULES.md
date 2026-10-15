@@ -130,7 +130,8 @@ configuration, documentation or dependency fix may instead say in one line why n
 Never weaken a test to make a build pass (an edited assertion, a deleted test, an added skip). A test changed
 because the intended behavior changed says so in the change.
 
-After two failed attempts to fix the same failure, stop and report with the failure output.
+After two failed attempts at the same fix for a failure, stop and report with the failure output. A
+different approach is a new attempt, within any overall cap the organization sets.
 
 Important safety guards must have tests that make them trigger.
 
