@@ -301,10 +301,10 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
   });
   await t('surfaces-add merges organization surfaces and base sections into the default map', () => {
     const add = path.join(tmp, 'add.json');
-    fs.writeFileSync(add, JSON.stringify({ surfaces: { labels: { paths: ['(^|/)label\\.ts$'], sections: ['§X'] } }, base_sections: { normal: ['§G'] } }));
+    fs.writeFileSync(add, JSON.stringify({ surfaces: { labels: { paths: ['(^|/)label\\.ts$'], sections: ['§X'] } }, base_sections: { normal: ['§B'] } }));
     const r = sectionsOnly({ repo, base: 'HEAD', depth: 'normal', surfacesAdd: add });
-    assert(r.sections.includes('§G') && r.sections.includes('§X') && r.sections.includes('§T'), r.sections.join(','));
-    fs.writeFileSync(add, JSON.stringify({ base_sections: { extreme: ['§G'] } }));
+    assert(r.sections.includes('§B') && r.sections.includes('§X') && r.sections.includes('§T'), r.sections.join(','));
+    fs.writeFileSync(add, JSON.stringify({ base_sections: { extreme: ['§B'] } }));
     let msg = ''; try { sectionsOnly({ repo, base: 'HEAD', depth: 'normal', surfacesAdd: add }); } catch (e) { msg = e.message; }
     assert(/unknown depth/.test(msg), msg);
   });

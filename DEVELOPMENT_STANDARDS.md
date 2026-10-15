@@ -167,7 +167,6 @@ A change that skips this checklist is a change that will need rework.
 | Pattern | Why |
 |---|---|
 | Code that joins two systems verifies their environment identities are compatible before it reads or writes, and fails closed when it cannot | A development database paired with a production system writes test values into live records (D4) |
-| Each default is defined once, in the configuration source; call sites read the value and fail loudly if it is missing | A second copy of a default at a call site drifts and hides a missing setting (D3) |
 
 ### Money and time
 
@@ -184,13 +183,6 @@ A change that skips this checklist is a change that will need rework.
 | A job that can overlap with itself holds a lock or is idempotent by key | Two overlapping runs otherwise double-write or race (D7) |
 | A batch that stops midway leaves a known, safe state that the next run completes | Manual repair after a partial run is where data gets corrupted (D7) |
 | Every safety guard (limit, abort, refusal) has a test that makes it trigger | An untested guard is a guess (D8) |
-
-### Deviations and legacy code
-
-| Pattern | Why |
-|---|---|
-| A knowing departure from a Hard rule is raised before it is committed; a comment is never the approval | A comment that admits a copy or an exception records a decision nobody approved (D11) |
-| Existing code is not a precedent | Where the surrounding code and these standards disagree, new lines follow the standards and the old pattern is flagged (D12) |
 
 ---
 
