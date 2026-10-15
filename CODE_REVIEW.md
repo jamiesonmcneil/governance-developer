@@ -218,7 +218,9 @@ One written sentence for each question that applies:
 9. If this is reverted, what state is left behind?
 10. What would an on-call engineer need at 2am that is missing?
 11. What is the most likely pushback from a senior reviewer, in the words they would use?
-12. What does the test data not represent, and what risk remains (D9)?
+12. Is anything duplicated that should be shared, or abstracted that should not be (D13)?
+13. Which rule was hardest to follow here, and was a departure raised (D11)?
+14. What does the test data not represent, and what risk remains (D9)?
 
 ## §A Authentication, authorization and scope
 
