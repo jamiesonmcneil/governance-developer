@@ -307,6 +307,9 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
     fs.writeFileSync(add, JSON.stringify({ base_sections: { extreme: ['§B'] } }));
     let msg = ''; try { sectionsOnly({ repo, base: 'HEAD', depth: 'normal', surfacesAdd: add }); } catch (e) { msg = e.message; }
     assert(/unknown depth/.test(msg), msg);
+    fs.writeFileSync(add, JSON.stringify({ base_sections: { normal: ['§G'] } }));
+    let gone = ''; try { sectionsOnly({ repo, base: 'HEAD', depth: 'normal', surfacesAdd: add }); } catch (e) { gone = e.message; }
+    assert(/§G" not found in CODE_REVIEW\.md/.test(gone), `a removed section must fail closed: ${gone}`);
   });
 
   await t('scan-code: a skip added and assertions removed in a test are found; a stronger test is not', () => {
