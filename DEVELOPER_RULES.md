@@ -124,7 +124,13 @@ Changed behavior gets appropriate tests.
 
 Failure paths matter.
 
-Bug fixes begin with a reproducing failing test where practical.
+Bug fixes begin with a reproducing failing test. If none can be produced, report the analysis and stop; a
+configuration, documentation or dependency fix may instead say in one line why no test applies.
+
+Never weaken a test to make a build pass (an edited assertion, a deleted test, an added skip). A test changed
+because the intended behavior changed says so in the change.
+
+After two failed attempts to fix the same failure, stop and report with the failure output.
 
 Important safety guards must have tests that make them trigger.
 

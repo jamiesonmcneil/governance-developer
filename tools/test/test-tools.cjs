@@ -207,6 +207,23 @@ const opts = (x) => ({ repo, base: 'HEAD', depth: 'low', record, scanner: `${cle
     fs.writeFileSync(cfg, JSON.stringify({ blocking: ['DC999'] }));
     assert(py(['--repo', '--config', cfg]).status === 2, 'unknown id accepted');
   });
+  await t('scan-code: a skip added and assertions removed in a test are found; a stronger test is not', () => {
+    sh(repo, 'commit', '-qm', 'c2');
+    const spec = path.join(repo, 'src/sum.test.ts');
+    fs.writeFileSync(spec, "it('adds', () => {\n  expect(sum(1, 2)).toBe(3);\n  expect(sum(0, 0)).toBe(0);\n});\n");
+    sh(repo, 'add', 'src/sum.test.ts'); sh(repo, 'commit', '-qm', 'spec');
+    fs.writeFileSync(spec, "it.skip('adds', () => {\n  expect(sum(1, 2)).toBe(3);\n});\n"); sh(repo, 'add', 'src/sum.test.ts');
+    const rules = JSON.parse(py(['--staged', '--json']).stdout).findings.map((f) => f.rule).sort().join();
+    assert(rules === 'DC014,DC015', rules);
+    fs.writeFileSync(spec, "it('adds', () => {\n  expect(sum(1, 2)).toBe(3);\n  expect(sum(0, 0)).toBe(0);\n  expect(sum(-1, 1)).toBe(0);\n});\n");
+    sh(repo, 'add', 'src/sum.test.ts');
+    const none = JSON.parse(py(['--staged', '--json']).stdout).findings.filter((f) => /DC01[45]/.test(f.rule));
+    assert(none.length === 0, JSON.stringify(none));
+    sh(repo, 'commit', '-qm', 'stronger');
+    sh(repo, 'rm', '-q', 'src/sum.test.ts');
+    const del = JSON.parse(py(['--staged', '--json']).stdout).findings;
+    assert(del.length === 1 && del[0].rule === 'DC015' && /deleted/.test(del[0].text), JSON.stringify(del));
+  });
 
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(`\n${pass} passed, ${fails.length} failed`);

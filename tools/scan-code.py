@@ -34,6 +34,8 @@ CODE = r'\.(ts|tsx|js|jsx|mjs|cjs|py|php|rb|go|java|cs|sh|bash)$'
 JS = r'\.(ts|tsx|js|jsx|mjs|cjs)$'
 TEST = r'(\.(test|spec)\.[a-z]+$|(^|/)(tests?|__tests__|e2e|fixtures?)/)'
 DOC = r'\.(md|mdx|txt|rst)$'
+TEST_CODE = r'^(?=.*' + CODE + r').*' + TEST
+ASSERTION = re.compile(r'\b(expect|assert\w*)\s*[(.]|\.should\b|\$this->assert\w*\s*\(')
 
 # id, name, file regex, line regex, skip-path regex (or None), skip-line regex (or None), why
 RULES = [
@@ -70,8 +72,11 @@ RULES = [
     ('DC012', 'waiver-comment', CODE,
      r'(TODO|FIXME|HACK|XXX)\b[^\n]*(hard.?cod|temporar|for now|bypass|skip (the )?check)|eslint-disable(?:-next-line)?\s*$|@ts-(ignore|nocheck)\s*$',
      TEST, None, 'D11: a comment acknowledging a violation is not approval'),
+    ('DC014', 'test-skipped', TEST_CODE,
+     r'\b(it|test|describe|context|suite)\.(skip|only)\s*\(|(?<![\w.])(xit|xdescribe|xtest|xcontext|fit|fdescribe)\s*\(|@pytest\.mark\.(skip|skipif|xfail)\b|\bpytest\.skip\s*\(|@unittest\.skip|\bmarkTest(Skipped|Incomplete)\s*\(|\bt\.Skip(Now|f)?\s*\(',
+     None, r'^\s*(//|#|\*)', 'D8: a test is not skipped or focused to make a build pass'),
 ]
-ALL_IDS = [r[0] for r in RULES] + ['DC013']
+ALL_IDS = [r[0] for r in RULES] + ['DC013', 'DC015']
 
 
 GIT_TIMEOUT_S = 120
@@ -110,6 +115,32 @@ def added_lines(diff_text):
             line += 1
         elif path and not raw.startswith('-'):
             line += 1
+
+
+def weakened_tests(diff_text, excluded):
+    """DC015: test files deleted, or losing more assertion lines than they gain, in a unified diff."""
+    out, old, new, counts = [], None, None, defaultdict(lambda: [0, 0])
+    rows = diff_text.splitlines()
+    for i, raw in enumerate(rows):
+        if raw.startswith('--- ') and i + 1 < len(rows) and rows[i + 1].startswith('+++ '):
+            o = raw[4:].strip()
+            old = None if o == '/dev/null' else re.sub(r'^a/', '', o)
+        elif raw.startswith('+++ ') and i > 0 and rows[i - 1].startswith('--- '):
+            n = raw[4:].strip()
+            new = None if n == '/dev/null' else re.sub(r'^b/', '', n)
+            if new is None and old and re.search(TEST_CODE, old) and not excluded(old):
+                out.append(['DC015', 'test-weakened', old, 0, 'test file deleted', WEAKENED_WHY])
+        elif (new or old) and raw[:1] in '+-' and ASSERTION.search(raw[1:]):
+            p = new or old
+            if re.search(TEST_CODE, p) and not excluded(p):
+                counts[p][0 if raw[0] == '-' else 1] += 1
+    for p, (removed, added) in counts.items():
+        if removed > added and p not in [f[2] for f in out]:
+            out.append(['DC015', 'test-weakened', p, 0, f'{removed} assertion line(s) removed, {added} added', WEAKENED_WHY])
+    return out
+
+
+WEAKENED_WHY = 'D8: a test is not weakened to make a build pass'
 
 
 def file_lines(root, paths):
@@ -199,12 +230,15 @@ def main(argv):
         parts = interp.findall(t)
         return bool(parts) and bool(safe_sql) and all(any(x.match(pt.strip()) for x in safe_sql) for pt in parts)
 
+    diff_text = None
     if mode == 'staged':
-        lines = list(added_lines(git(root, 'diff', '--cached', '-U0', '--no-color', '--no-ext-diff')))
+        diff_text = git(root, 'diff', '--cached', '-U0', '--no-color', '--no-ext-diff')
     elif mode == 'diff':
-        lines = list(added_lines(git(root, 'diff', args['ref'], '-U0', '--no-color', '--no-ext-diff')))
+        diff_text = git(root, 'diff', args['ref'], '-U0', '--no-color', '--no-ext-diff')
     elif mode == 'commit':
-        lines = list(added_lines(git(root, 'show', args['ref'], '--format=', '-U0', '--no-color', '--no-ext-diff')))
+        diff_text = git(root, 'show', args['ref'], '--format=', '-U0', '--no-color', '--no-ext-diff')
+    if diff_text is not None:
+        lines = list(added_lines(diff_text))
     elif mode == 'repo':
         lines = list(file_lines(root, git(root, 'ls-files').splitlines()))
     else:
@@ -236,6 +270,9 @@ def main(argv):
             if f[0] == 'DC008':
                 var = next((g for g in rx.search(f[4]).groups() if g and g not in ('||', '??')), None) if rx.search(f[4]) else None
                 f.append(len(sites.get(var, ())) > 1)
+
+    if 'DC015' not in disabled and diff_text is not None:
+        findings += weakened_tests(diff_text, excluded)
 
     if 'DC013' not in disabled and mode != 'repo':
         findings += [list(x) for x in duplication(root, lines, int(cfg.get('thresholds', {}).get('dup_min_lines', 8)), excluded)]

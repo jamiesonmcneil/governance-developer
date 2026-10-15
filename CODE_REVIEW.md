@@ -77,6 +77,8 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 3.17 | Least privilege: application database logins are not superusers; shared stores enforce isolation in the database as well as the application |
 | 3.18 | Private data stays out of AI calls, logs, exports and search |
 | 3.19 | A new data interface has a second-account test: another account cannot read, change or infer the data |
+| 3.20 | MCP servers and agent plugins are treated as dependencies: reviewed before use and pinned to a version |
+| 3.21 | No instruction-like text aimed at an AI hides in comments, strings, docs or commit messages of the diff |
 
 ## §4 Reuse and structure (D1, D2, D13)
 
@@ -126,6 +128,7 @@ At **Low** depth no section is loaded: D1 to D15 and the mechanical and test res
 | 7.5 | Test data can reach the behavior claimed (D9) |
 | 7.6 | Mocks sit at boundaries the project does not own; the code under test is not mocked |
 | 7.7 | Tests do not depend on production systems or real customer data |
+| 7.8 | No test was weakened to pass (assertion edited, test deleted, skip added); a test changed for new intended behavior says so (D8) |
 
 ## §8 Performance
 
